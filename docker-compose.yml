@@ -2,11 +2,11 @@ version: '3.8'
 
 services:
   gas-api:
-    build: ./backend
+    build: .
     container_name: gas-api
     restart: always
     ports:
-      - "3001:3001"
+      - "8095:3001"
     environment:
       - PORT=3001
       - SUPABASE_URL=https://zavlnqgrhtahddoyfntj.supabase.co

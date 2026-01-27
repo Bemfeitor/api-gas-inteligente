@@ -23,7 +23,7 @@ app.get('/', (req, res) => {
 });
 
 // Post Reading Endpoint
-app.post('/api/readings', async (req, res) => {
+app.post(['/api/readings', '/api/reading'], async (req, res) => {
     const { mac_address, weight, battery, signal } = req.body;
 
     if (!mac_address || weight === undefined) {

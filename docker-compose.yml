@@ -1,0 +1,27 @@
+version: '3.8'
+
+services:
+  gas-api:
+    build: ./backend
+    container_name: gas-api
+    restart: always
+    ports:
+      - "3001:3001"
+    environment:
+      - PORT=3001
+      - SUPABASE_URL=https://zavlnqgrhtahddoyfntj.supabase.co
+      - SUPABASE_ANON_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InphdmxucWdyaHRhaGRkb3lmbnRqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Njk0NTA1MDEsImV4cCI6MjA4NTAyNjUwMX0.aAPCoZDZHnPnYnTtSKWfetwKSG-SqFM0PTQcmEl1SZc
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.gas-api.rule=Host(`gas.allanturing.com`)"
+      - "traefik.http.routers.gas-api.entrypoints=websecure"
+      - "traefik.http.services.gas-api.loadbalancer.server.port=3001"
+      # Assuming Traefik is handled by Portainer or external proxy, these labels correspond to a standard Traefik 2.x setup.
+      # If using Nginx Proxy Manager, no labels needed, just expose port.
+      # The user asked to "prepare everything to go up on portainer with domain gas.allanturing.com". 
+      # Usually this implies reverse proxy labels if using Traefik, or just the compose file if using Portainer's UI to map ports.
+      # I'll include Traefik labels as a safe default for "domain" requests in docker ecosystems, but mainly the port is key.
+
+networks:
+  default:
+    driver: bridge

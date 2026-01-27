@@ -1,0 +1,7 @@
+{
+  "name": "Gás Inteligente",
+  "description": "Monitoramento IoT minimalista para níveis de gás de cozinha, com provisionamento Wi-Fi e estimativa de autonomia.",
+  "requestFramePermissions": [
+    "geolocation"
+  ]
+}

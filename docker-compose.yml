@@ -7,6 +7,7 @@ services:
     restart: always
     ports:
       - "8095:3001"
+      - "80:3001"
     environment:
       - PORT=3001
       - SUPABASE_URL=https://zavlnqgrhtahddoyfntj.supabase.co
@@ -16,6 +17,9 @@ services:
       - "traefik.http.routers.gas-web.rule=Host(`gas.allanturing.com`)"
       - "traefik.http.routers.gas-web.entrypoints=websecure"
       - "traefik.http.services.gas-web.loadbalancer.server.port=3001"
+    networks:
+      - default
+      - proxy
 
   gas-api:
     build: ./backend
@@ -27,3 +31,12 @@ services:
       - PORT=3000
       - SUPABASE_URL=https://zavlnqgrhtahddoyfntj.supabase.co
       - SUPABASE_ANON_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InphdmxucWdyaHRhaGRkb3lmbnRqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Njk0NTA1MDEsImV4cCI6MjA4NTAyNjUwMX0.aAPCoZDZHnPnYnTtSKWfetwKSG-SqFM0PTQcmEl1SZc
+    networks:
+      - default
+      - proxy
+
+networks:
+  default:
+    driver: bridge
+  proxy:
+    external: true

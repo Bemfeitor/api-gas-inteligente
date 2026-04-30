@@ -1,0 +1,121 @@
+const express = require('express');
+const cors = require('cors');
+const bodyParser = require('body-parser');
+const { createClient } = require('@supabase/supabase-js');
+
+const app = express();
+const port = 3000;
+
+// Middleware
+app.use(cors());
+app.use(bodyParser.json());
+
+// 🔥 SUPABASE FIXO (como você pediu)
+const supabase = createClient(
+  'https://zavlnqgrhtahddoyfntj.supabase.co',
+  'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InphdmxucWdyaHRhaGRkb3lmbnRqIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc2OTQ1MDUwMSwiZXhwIjoyMDg1MDI2NTAxfQ.cuPxKJYMR56VaDjSCkY7hkeh9Q7_28dzqfUpeoYxJQA'
+);
+
+// Health
+app.get('/', (req, res) => {
+  res.send('API rodando');
+});
+
+// 🔥 FUNÇÃO PARA PARSE DO PAYLOAD
+function parsePayload(payload) {
+  try {
+    // remove {}
+    const clean = payload.replace(/[{}]/g, '');
+    const [rawWeight, leak, mac] = clean.split(',');
+
+    // peso: 03030 → 30.30
+    const weight = parseFloat(rawWeight) / 100;
+
+    return {
+      mac_address: mac,
+      weight: weight,
+      gas_leak: leak === '1'
+    };
+
+  } catch (err) {
+    console.error('Erro ao parsear payload:', err);
+    return null;
+  }
+}
+
+// 🔥 RETRY PARA EVITAR ERRO DE REDE
+async function salvarLeitura(dados, tentativas = 3) {
+  for (let i = 0; i < tentativas; i++) {
+    try {
+      const { error } = await supabase
+        .from('readings')
+        .insert([dados]);
+
+      if (error) throw error;
+
+      console.log('✅ Leitura salva');
+      return;
+
+    } catch (err) {
+      console.error(`❌ Tentativa ${i + 1} falhou:`, err.message);
+      await new Promise(r => setTimeout(r, 2000));
+    }
+  }
+
+  console.error('🔥 Falha total ao salvar');
+}
+
+// Endpoint
+app.post('/api/payload', async (req, res) => {
+  const { payload } = req.body;
+
+  if (!payload) {
+    return res.status(400).json({ error: 'Payload obrigatório' });
+  }
+
+  const parsed = parsePayload(payload);
+
+  if (!parsed || parsed.weight === null) {
+    return res.status(400).json({ error: 'Erro ao interpretar payload' });
+  }
+
+  try {
+    // 🔥 BUSCAR OU CRIAR DEVICE
+    let { data: device } = await supabase
+      .from('devices')
+      .select('id')
+      .eq('mac_address', parsed.mac_address)
+      .single();
+
+    if (!device) {
+      const { data: newDevice, error } = await supabase
+        .from('devices')
+        .insert([{ mac_address: parsed.mac_address }])
+        .select()
+        .single();
+
+      if (error) throw error;
+      device = newDevice;
+    }
+
+    // 🔥 SALVAR LEITURA
+    await salvarLeitura({
+      device_id: device.id,
+      weight: parsed.weight,
+      gas_leak: parsed.gas_leak
+    });
+
+    res.json({
+      sucesso: true,
+      ...parsed
+    });
+
+  } catch (err) {
+    console.error('Erro geral:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.listen(port, () => {
+  console.log(`🚀 Server rodando na porta ${port}`);
+});

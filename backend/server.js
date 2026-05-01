@@ -196,7 +196,7 @@ app.post(['/api/readings', '/api/reading', '/api/payload'], async (req, res) => 
             `Reading saved -> MAC: ${reading.mac_address}, Weight: ${reading.weight}, Alarm: ${reading.alarm === true ? 1 : 0}, Device ID: ${device.id}`
         );
 
-        return res.status(201).json({
+        return res.status(200).json({
             message: 'Reading saved successfully',
             device_id: device.id,
             mac_address: reading.mac_address,

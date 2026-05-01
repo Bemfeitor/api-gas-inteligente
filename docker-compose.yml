@@ -6,7 +6,7 @@ services:
     container_name: gas-web
     restart: always
     ports:
-      - "80:3001"
+      - "8097:3001"
     environment:
       - PORT=3001
       - SUPABASE_URL=https://zavlnqgrhtahddoyfntj.supabase.co

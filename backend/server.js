@@ -1,86 +1,182 @@
-
 const express = require('express');
 const cors = require('cors');
-const bodyParser = require('body-parser');
 const { createClient } = require('@supabase/supabase-js');
 require('dotenv').config();
 
 const app = express();
 const port = process.env.PORT || 3000;
 
-// Middleware
 app.use(cors());
-app.use(bodyParser.json());
+app.use(express.text({ type: '*/*', limit: '32kb' }));
 
-// Supabase Client
 const supabaseUrl = process.env.SUPABASE_URL;
 const supabaseKey = process.env.SUPABASE_ANON_KEY;
 const supabase = createClient(supabaseUrl, supabaseKey);
 
-// Health Check
-app.get('/', (req, res) => {
-    res.send('Gas Scale API is running');
+app.get(['/', '/health'], (req, res) => {
+    res.json({ status: 'ok', service: 'gas-scale-api' });
 });
 
-// Post Reading Endpoint
-app.post(['/api/readings', '/api/reading'], async (req, res) => {
-    const { mac_address, weight, battery, signal } = req.body;
+function parseNumber(value) {
+    if (value === undefined || value === null || value === '') return null;
+    const normalized = String(value).trim().replace(',', '.');
+    const parsed = Number(normalized);
+    return Number.isFinite(parsed) ? parsed : null;
+}
 
-    if (!mac_address || weight === undefined) {
-        return res.status(400).json({ error: 'Missing mac_address or weight' });
+function parseTextPayload(text) {
+    const payload = String(text || '').trim().replace(/^\{|\}$/g, '');
+    const parts = payload.split(',').map((part) => part.trim());
+
+    if (parts.length !== 3 || parts.some((part) => !part)) {
+        return null;
     }
 
+    const [rawWeight, alarm, macAddress] = parts;
+    const weight = parseNumber(rawWeight);
+
+    if (weight === null) {
+        return null;
+    }
+
+    return {
+        mac_address: macAddress,
+        weight: weight / 100,
+        alarm: alarm === '1',
+        source: 'text_payload',
+    };
+}
+
+function parseJsonPayload(text) {
     try {
-        // 1. Check if device exists, if not create it (upsert check)
-        // For simplicity, we assume the device should be registered or we auto-register it.
-        // Let's Find the device ID first
-        let { data: device, error: deviceError } = await supabase
-            .from('devices')
-            .select('id')
-            .eq('mac_address', mac_address)
-            .single();
+        const body = JSON.parse(String(text || '{}'));
+        const nestedPayload = typeof body.payload === 'string' ? parseTextPayload(body.payload) : null;
 
-        if (!device) {
-            // Auto-register new device found
-            const { data: newDevice, error: createError } = await supabase
-                .from('devices')
-                .insert([{ mac_address }])
-                .select()
-                .single();
-
-            if (createError) throw createError;
-            device = newDevice;
+        if (nestedPayload) {
+            return {
+                ...nestedPayload,
+                battery: parseNumber(body.battery),
+                signal: parseNumber(body.signal),
+            };
         }
 
-        // 2. Insert reading
+        const macAddress = body.mac_address || body.mac || body.device || body.device_id;
+        const weight = parseNumber(body.weight ?? body.peso);
+
+        if (!macAddress || weight === null) {
+            return null;
+        }
+
+        return {
+            mac_address: String(macAddress).trim(),
+            weight,
+            battery: parseNumber(body.battery),
+            signal: parseNumber(body.signal),
+            source: 'json',
+        };
+    } catch {
+        return null;
+    }
+}
+
+function parseReading(req) {
+    const rawBody = typeof req.body === 'string' ? req.body.trim() : '';
+
+    if (!rawBody) {
+        return null;
+    }
+
+    return parseTextPayload(rawBody) || parseJsonPayload(rawBody);
+}
+
+async function findOrCreateDevice(macAddress) {
+    const { data: device, error: findError } = await supabase
+        .from('devices')
+        .select('id')
+        .eq('mac_address', macAddress)
+        .maybeSingle();
+
+    if (findError) {
+        throw findError;
+    }
+
+    if (device) {
+        return device;
+    }
+
+    const { data: newDevice, error: createError } = await supabase
+        .from('devices')
+        .insert([{ mac_address: macAddress }])
+        .select('id')
+        .single();
+
+    if (createError) {
+        throw createError;
+    }
+
+    return newDevice;
+}
+
+app.post(['/api/readings', '/api/reading', '/api/payload'], async (req, res) => {
+    const reading = parseReading(req);
+
+    if (!reading) {
+        console.warn('Invalid reading payload:', req.body);
+        return res.status(400).json({
+            error: 'Invalid payload',
+            expected: 'weight,alarm,MAC or JSON with mac_address and weight',
+        });
+    }
+
+    console.log(`Processing reading -> MAC: ${reading.mac_address}, Weight: ${reading.weight}`);
+
+    try {
+        const device = await findOrCreateDevice(reading.mac_address);
+        const insertData = {
+            device_id: device.id,
+            weight: reading.weight,
+            battery: reading.battery,
+            signal: reading.signal,
+        };
+
         const { error: readingError } = await supabase
             .from('readings')
-            .insert([
-                {
-                    device_id: device.id,
-                    weight: parseFloat(weight),
-                    battery: battery ? parseFloat(battery) : null,
-                    signal: signal ? parseFloat(signal) : null,
-                },
-            ]);
+            .insert([insertData]);
 
-        if (readingError) throw readingError;
+        if (readingError) {
+            throw readingError;
+        }
 
-        // 3. Update last_seen in devices
         await supabase
             .from('devices')
-            .update({ updated_at: new Date() })
+            .update({ updated_at: new Date().toISOString() })
             .eq('id', device.id);
 
-        res.status(201).json({ message: 'Reading saved successfully', device_id: device.id });
-
+        return res.status(201).json({
+            message: 'Reading saved successfully',
+            device_id: device.id,
+            mac_address: reading.mac_address,
+            weight: reading.weight,
+        });
     } catch (err) {
         console.error('Error saving reading:', err);
-        res.status(500).json({ error: 'Internal Server Error', details: err.message });
+        return res.status(500).json({
+            error: 'Internal Server Error',
+            details: err.message,
+            code: err.code,
+        });
     }
 });
 
-// Start Server
-app.listen(port, () => {
-    console.log(`Server running on port ${port}`);
-});
+if (require.main === module) {
+    app.listen(port, () => {
+        console.log(`Server running on port ${port}`);
+    });
+}
+
+module.exports = {
+    app,
+    parseTextPayload,
+    parseJsonPayload,
+    parseReading,
+};

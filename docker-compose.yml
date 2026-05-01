@@ -6,7 +6,6 @@ services:
     container_name: gas-web
     restart: always
     ports:
-      - "8095:3001"
       - "80:3001"
     environment:
       - PORT=3001
@@ -26,6 +25,7 @@ services:
     container_name: gas-api
     restart: always
     ports:
+      - "8095:3000"
       - "8096:3000"
     environment:
       - PORT=3000

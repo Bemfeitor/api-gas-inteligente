@@ -49,6 +49,7 @@ function parseTextPayload(text) {
     return {
         mac_address: macAddress,
         weight: weight / 100,
+        raw_weight: Math.round(weight),
         alarm: alarm === '1',
         source: 'text_payload',
     };
@@ -77,6 +78,8 @@ function parseJsonPayload(text) {
         return {
             mac_address: String(macAddress).trim(),
             weight,
+            raw_weight: parseNumber(body.raw_weight ?? body.peso_bruto) ?? Math.round(weight * 100),
+            alarm: body.alarm === true || body.alerta === true || body.gas_leak === true,
             battery: parseNumber(body.battery),
             signal: parseNumber(body.signal),
             source: 'json',
@@ -128,6 +131,22 @@ async function findOrCreateDevice(macAddress) {
     return newDevice;
 }
 
+async function saveGasReading(reading) {
+    const gasReading = {
+        mac: reading.mac_address,
+        peso: reading.raw_weight ?? Math.round(reading.weight * 100),
+        alerta: reading.alarm === true,
+    };
+
+    const { error } = await supabase
+        .from('gas_readings')
+        .insert([gasReading]);
+
+    if (error) {
+        throw error;
+    }
+}
+
 app.post(['/api/readings', '/api/reading', '/api/payload'], async (req, res) => {
     const rawBody = getRawBody(req);
     console.log(`Received reading payload -> raw: ${rawBody || '<empty>'}`);
@@ -171,8 +190,10 @@ app.post(['/api/readings', '/api/reading', '/api/payload'], async (req, res) => 
             .update({ updated_at: new Date().toISOString() })
             .eq('id', device.id);
 
+        await saveGasReading(reading);
+
         console.log(
-            `Reading saved -> MAC: ${reading.mac_address}, Weight: ${reading.weight}, Device ID: ${device.id}`
+            `Reading saved -> MAC: ${reading.mac_address}, Weight: ${reading.weight}, Alarm: ${reading.alarm === true ? 1 : 0}, Device ID: ${device.id}`
         );
 
         return res.status(201).json({
@@ -180,6 +201,7 @@ app.post(['/api/readings', '/api/reading', '/api/payload'], async (req, res) => 
             device_id: device.id,
             mac_address: reading.mac_address,
             weight: reading.weight,
+            alarm: reading.alarm === true,
         });
     } catch (err) {
         console.error('Error saving reading:', err);
@@ -203,4 +225,5 @@ module.exports = {
     parseJsonPayload,
     parseReading,
     getRawBody,
+    saveGasReading,
 };

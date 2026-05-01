@@ -149,6 +149,9 @@ async function saveGasReading(reading) {
 
 app.post(['/api/readings', '/api/reading', '/api/payload'], async (req, res) => {
     const rawBody = getRawBody(req);
+    console.log(
+        `Request meta -> Method: ${req.method}, URL: ${req.originalUrl}, Host: ${req.get('host') || '-'}, Content-Type: ${req.get('content-type') || '-'}, Remote: ${req.ip || req.socket.remoteAddress || '-'}, X-Forwarded-For: ${req.get('x-forwarded-for') || '-'}, User-Agent: ${req.get('user-agent') || '-'}`
+    );
     console.log(`Received reading payload -> raw: ${rawBody || '<empty>'}`);
 
     const reading = parseReading(req);

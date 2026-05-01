@@ -11,7 +11,14 @@ app.use(express.text({ type: '*/*', limit: '32kb' }));
 
 const supabaseUrl = process.env.SUPABASE_URL;
 const supabaseKey = process.env.SUPABASE_ANON_KEY;
-const supabase = createClient(supabaseUrl, supabaseKey);
+const supabase = createClient(supabaseUrl, supabaseKey, {
+    global: {
+        fetch: (url, options = {}) => fetch(url, {
+            ...options,
+            signal: AbortSignal.timeout(15000),
+        }),
+    },
+});
 
 app.get(['/', '/health'], (req, res) => {
     res.json({ status: 'ok', service: 'gas-scale-api' });
@@ -89,6 +96,10 @@ function parseReading(req) {
     return parseTextPayload(rawBody) || parseJsonPayload(rawBody);
 }
 
+function getRawBody(req) {
+    return typeof req.body === 'string' ? req.body.trim() : '';
+}
+
 async function findOrCreateDevice(macAddress) {
     const { data: device, error: findError } = await supabase
         .from('devices')
@@ -118,6 +129,9 @@ async function findOrCreateDevice(macAddress) {
 }
 
 app.post(['/api/readings', '/api/reading', '/api/payload'], async (req, res) => {
+    const rawBody = getRawBody(req);
+    console.log(`Received reading payload -> raw: ${rawBody || '<empty>'}`);
+
     const reading = parseReading(req);
 
     if (!reading) {
@@ -128,10 +142,15 @@ app.post(['/api/readings', '/api/reading', '/api/payload'], async (req, res) => 
         });
     }
 
-    console.log(`Processing reading -> MAC: ${reading.mac_address}, Weight: ${reading.weight}`);
+    console.log(
+        `Processing reading -> MAC: ${reading.mac_address}, Weight: ${reading.weight}, Alarm: ${reading.alarm === true ? 1 : 0}`
+    );
 
     try {
+        console.log(`Finding device -> MAC: ${reading.mac_address}`);
         const device = await findOrCreateDevice(reading.mac_address);
+        console.log(`Device ready -> MAC: ${reading.mac_address}, Device ID: ${device.id}`);
+
         const insertData = {
             device_id: device.id,
             weight: reading.weight,
@@ -151,6 +170,10 @@ app.post(['/api/readings', '/api/reading', '/api/payload'], async (req, res) => 
             .from('devices')
             .update({ updated_at: new Date().toISOString() })
             .eq('id', device.id);
+
+        console.log(
+            `Reading saved -> MAC: ${reading.mac_address}, Weight: ${reading.weight}, Device ID: ${device.id}`
+        );
 
         return res.status(201).json({
             message: 'Reading saved successfully',
@@ -179,4 +202,5 @@ module.exports = {
     parseTextPayload,
     parseJsonPayload,
     parseReading,
+    getRawBody,
 };
